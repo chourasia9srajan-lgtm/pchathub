@@ -111,8 +111,8 @@
         // This is a mandatory step. You must replace all the placeholder values
         // with the configuration from your own Supabase project.
         // Go to your project's dashboard > Settings > API to find these values.
-        const supabaseUrl = https://cozbqttfvnwbqzilxwut.supabase.co;
-        const supabaseKey = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvemJxdHRmdm53YnF6aWx4d3V0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjA2MjcsImV4cCI6MjA3MjE5NjYyN30.8_6fGPD_bnYY6FHHFnrcPOD3KJj0Shx7O5drbLNoyLw;
+        const supabaseUrl = 'YOUR_SUPABASE_URL';
+        const supabaseKey = 'YOUR_SUPABASE_KEY';
         // ---------------------------------------------
         
         // --- Supabase Initialization ---
@@ -136,27 +136,30 @@
         const cancelReplyButton = document.getElementById('cancel-reply-button');
         const chatPartnerIdDisplay = document.getElementById('chat-partner-id');
         const currentUserIdDisplay = document.getElementById('current-user-id');
-        
-        // Generate a random user ID on app load
-        userId = crypto.randomUUID();
-        userIdDisplay.textContent = userId;
-        currentUserIdDisplay.textContent = userId;
-        authStatus.textContent = 'User ID generated. Share it with your friend!';
-        loginButton.disabled = false;
 
-        // Check if supabaseConfig is valid
-        if (supabaseUrl !== "YOUR_SUPABASE_URL" && supabaseKey !== "YOUR_SUPABASE_KEY") {
-            try {
-                supabase = createClient(supabaseUrl, supabaseKey);
-                console.log("Supabase client initialized successfully.");
-            } catch (error) {
-                console.error("Supabase initialization failed:", error);
-                authStatus.textContent = 'Supabase initialization failed. Check your config.';
+        // Initial setup on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            // Generate a random user ID on app load
+            userId = crypto.randomUUID();
+            userIdDisplay.textContent = userId;
+            currentUserIdDisplay.textContent = userId;
+            authStatus.textContent = 'User ID generated. Share it with your friend!';
+            loginButton.disabled = false;
+
+            // Check if supabaseConfig is valid
+            if (supabaseUrl !== "YOUR_SUPABASE_URL" && supabaseKey !== "YOUR_SUPABASE_KEY") {
+                try {
+                    supabase = createClient(supabaseUrl, supabaseKey);
+                    console.log("Supabase client initialized successfully.");
+                } catch (error) {
+                    console.error("Supabase initialization failed:", error);
+                    authStatus.textContent = 'Supabase initialization failed. Check your config.';
+                }
+            } else {
+                authStatus.textContent = 'Supabase configuration is missing or invalid. Please check the code.';
+                console.error("Supabase configuration is missing or invalid. The app cannot function without it.");
             }
-        } else {
-            authStatus.textContent = 'Supabase configuration is missing or invalid. Please check the code.';
-            console.error("Supabase configuration is missing or invalid. The app cannot function without it.");
-        }
+        });
 
         // --- Chat Room Logic ---
         loginButton.addEventListener('click', () => {
