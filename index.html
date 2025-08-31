@@ -111,8 +111,8 @@
         // This is a mandatory step. You must replace all the placeholder values
         // with the configuration from your own Supabase project.
         // Go to your project's dashboard > Settings > API to find these values.
-        const supabaseUrl = https://cozbqttfvnwbqzilxwut.supabase.co;
-        const supabaseKey = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvemJxdHRmdm53YnF6aWx4d3V0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjA2MjcsImV4cCI6MjA3MjE5NjYyN30.8_6fGPD_bnYY6FHHFnrcPOD3KJj0Shx7O5drbLNoyLw;
+        const supabaseUrl = 'https://cozbqttfvnwbqzilxwut.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvemJxdHRmdm53YnF6aWx4d3V0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2MjA2MjcsImV4cCI6MjA3MjE5NjYyN30.8_6fGPD_bnYY6FHHFnrcPOD3KJj0Shx7O5drbLNoyLw';
         // ---------------------------------------------
         
         // --- Supabase Initialization ---
@@ -139,11 +139,17 @@
 
         // Initial setup on page load
         document.addEventListener('DOMContentLoaded', () => {
-            // Generate a random user ID on app load
-            userId = crypto.randomUUID();
+            // Use a specific user ID based on a simple check
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('user') && urlParams.get('user') === 'user-two') {
+                userId = 'rhy12';
+            } else {
+                userId = 'srj12';
+            }
+
             userIdDisplay.textContent = userId;
             currentUserIdDisplay.textContent = userId;
-            authStatus.textContent = 'User ID generated. Share it with your friend!';
+            authStatus.textContent = `Your ID is "${userId}". Please share the other ID with your friend.`;
             loginButton.disabled = false;
 
             // Check if supabaseConfig is valid
@@ -164,7 +170,7 @@
         // --- Chat Room Logic ---
         loginButton.addEventListener('click', () => {
             const otherUserId = otherUserIdInput.value.trim();
-            if (otherUserId && userId) {
+            if (otherUserId && (otherUserId === 'srj12' || otherUserId === 'rhy12') && otherUserId !== userId) {
                 const sortedUsers = [userId, otherUserId].sort();
                 chatRoomId = `${sortedUsers[0]}_${sortedUsers[1]}`;
                 chatPartnerIdDisplay.textContent = otherUserId;
@@ -173,6 +179,8 @@
                 chatContainer.style.display = 'flex';
                 
                 startChatListener();
+            } else {
+                alert(`Please enter the correct user ID: ${userId === 'srj12' ? 'rhy12' : 'srj12'}.`);
             }
         });
 
@@ -311,5 +319,3 @@
     </script>
 </body>
 </html>
-
-
