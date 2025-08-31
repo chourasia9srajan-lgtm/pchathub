@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Chat App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .chat-container {
+            display: none;
+        }
+        .message {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 18px;
+            margin-bottom: 8px;
+            line-height: 1.4;
+            font-size: 15px;
+        }
+        .message-other {
+            background-color: #e5e7eb;
+            color: #374151;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .message-self {
+            background-color: #3b82f6;
+            color: #ffffff;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .reply-preview {
+            background-color: #cbd5e1;
+            border-left: 4px solid #3b82f6;
+            padding: 4px 8px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+        }
+        .reply-preview p {
+            font-size: 13px;
+            color: #4b5563;
+        }
+        .reply-preview-container {
+            background-color: #e5e7eb;
+            padding: 8px;
+            border-radius: 12px;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+
+    <!-- Login Page -->
+    <div id="login-page" class="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm">
+        <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">Chat with a Friend</h1>
+        <p class="text-sm text-center text-gray-500 mb-4">
+            Enter your friend's user ID to start a chat. This ID will determine the unique chat room you share.
+        </p>
+        <div class="mb-4">
+            <label for="other-user-id" class="block text-sm font-medium text-gray-700 mb-1">Friend's User ID</label>
+            <input type="text" id="other-user-id" class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <button id="login-button" class="w-full bg-blue-600 text-white p-3 rounded-md font-semibold hover:bg-blue-700 transition duration-200">Start Chat</button>
+        <p id="auth-status" class="mt-4 text-center text-sm font-medium text-gray-600">Authenticating...</p>
+        <p id="user-id-display" class="mt-2 text-center text-xs text-gray-400 truncate"></p>
+    </div>
+
+    <!-- Chat Interface -->
+    <div id="chat-container" class="chat-container bg-white rounded-xl shadow-lg flex flex-col w-full max-w-2xl h-[90vh] sm:h-[80vh]">
+        <header class="bg-blue-600 text-white p-4 rounded-t-xl shadow-md flex justify-between items-center">
+            <h2 class="text-lg font-semibold">Chat with <span id="chat-partner-id"></span></h2>
+            <div id="current-user-info" class="text-sm">You: <span class="font-bold" id="current-user-id"></span></div>
+        </header>
+
+        <!-- Message Area -->
+        <div id="messages" class="flex-1 p-4 overflow-y-auto flex flex-col">
+            <div class="flex flex-col items-center justify-center text-gray-400 p-4">
+                <span class="text-2xl mb-2">👋</span>
+                <p>Say hello!</p>
+            </div>
+        </div>
+
+        <!-- Reply Preview and Input Area -->
+        <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+            <div id="reply-preview-container" class="hidden reply-preview-container">
+                <div class="flex justify-between items-center">
+                    <p class="text-sm font-medium text-gray-600">Replying to:</p>
+                    <button id="cancel-reply-button" class="text-gray-500 hover:text-gray-700 text-lg">&times;</button>
+                </div>
+                <div id="reply-preview-content" class="reply-preview"></div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <input type="text" id="message-input" placeholder="Type a message..." class="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="send-button" class="bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition duration-200">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, getDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Firebase Initialization ---
+        let app, db, auth, userId;
+        let chatRoomId;
+        let replyingToMessage = null;
+        let unsubscribeFromChat = null;
+
+        const loginPage = document.getElementById('login-page');
+        const chatContainer = document.getElementById('chat-container');
+        const loginButton = document.getElementById('login-button');
+        const otherUserIdInput = document.getElementById('other-user-id');
+        const authStatus = document.getElementById('auth-status');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const messagesContainer = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const replyPreviewContainer = document.getElementById('reply-preview-container');
+        const replyPreviewContent = document.getElementById('reply-preview-content');
+        const cancelReplyButton = document.getElementById('cancel-reply-button');
+        const chatPartnerIdDisplay = document.getElementById('chat-partner-id');
+        const currentUserIdDisplay = document.getElementById('current-user-id');
+
+        // Check if firebaseConfig is valid
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // Log in using the custom token or anonymously
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    authStatus.textContent = 'Authenticated. Your User ID:';
+                    userIdDisplay.textContent = userId;
+                    currentUserIdDisplay.textContent = userId;
+                    loginButton.disabled = false;
+                } else {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Authentication failed:", error);
+                        authStatus.textContent = 'Authentication Failed.';
+                    }
+                }
+            });
+        } else {
+            authStatus.textContent = 'Firebase configuration is missing.';
+            console.error("Firebase configuration is missing. The app cannot function without it.");
+        }
+
+        // --- Chat Room Logic ---
+        loginButton.addEventListener('click', () => {
+            const otherUserId = otherUserIdInput.value.trim();
+            if (otherUserId && userId) {
+                const sortedUsers = [userId, otherUserId].sort();
+                chatRoomId = `${sortedUsers[0]}_${sortedUsers[1]}`;
+                chatPartnerIdDisplay.textContent = otherUserId;
+                
+                loginPage.style.display = 'none';
+                chatContainer.style.display = 'flex';
+                
+                startChatListener();
+            }
+        });
+
+        // --- Message Display and Interaction ---
+        function startChatListener() {
+            if (unsubscribeFromChat) {
+                unsubscribeFromChat(); // Clean up previous listener
+            }
+
+            const chatCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatRoomId, 'messages');
+            const q = query(chatCollectionRef, orderBy('timestamp'));
+
+            unsubscribeFromChat = onSnapshot(q, (snapshot) => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                renderMessages(messages);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, (error) => {
+                console.error("Error listening for messages:", error);
+            });
+        }
+
+        async function renderMessages(messages) {
+            messagesContainer.innerHTML = '';
+            const allMessages = {};
+            messages.forEach(msg => allMessages[msg.id] = msg);
+
+            for (const msg of messages) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('flex', 'flex-col');
+                
+                let replyContent = null;
+                if (msg.replyTo) {
+                    const repliedToMsg = allMessages[msg.replyTo];
+                    if (repliedToMsg) {
+                        replyContent = repliedToMsg.text;
+                    }
+                }
+
+                if (replyContent) {
+                    const replyPreviewDiv = document.createElement('div');
+                    replyPreviewDiv.classList.add('reply-preview');
+                    replyPreviewDiv.innerHTML = `<p class="font-medium text-gray-600">${repliedToMsg.sender === userId ? 'You' : repliedToMsg.sender}:</p><p>${repliedToMsg.text}</p>`;
+                    messageDiv.appendChild(replyPreviewDiv);
+                }
+
+                const contentDiv = document.createElement('div');
+                contentDiv.classList.add('message');
+                contentDiv.classList.add(msg.sender === userId ? 'message-self' : 'message-other');
+
+                // Image handling: check if the message text is a valid image URL
+                const isImage = msg.text.match(/\.(jpeg|jpg|gif|png|webp|avif)$/i);
+                if (isImage) {
+                    const img = document.createElement('img');
+                    img.src = msg.text;
+                    img.classList.add('rounded-lg', 'my-1', 'max-w-full', 'h-auto', 'cursor-pointer');
+                    img.onerror = () => {
+                        // Fallback to text if the image fails to load
+                        contentDiv.textContent = msg.text;
+                    };
+                    contentDiv.appendChild(img);
+                } else {
+                    contentDiv.textContent = msg.text;
+                }
+                
+                messageDiv.appendChild(contentDiv);
+
+                // Add reply button
+                const replyButton = document.createElement('button');
+                replyButton.innerHTML = 'Reply';
+                replyButton.classList.add('text-xs', 'text-gray-500', 'hover:text-gray-800', 'font-medium', 'mt-1');
+                replyButton.addEventListener('click', () => {
+                    replyingToMessage = msg;
+                    replyPreviewContent.innerHTML = `<p class="font-medium text-gray-600">${msg.sender === userId ? 'You' : msg.sender}:</p><p>${msg.text}</p>`;
+                    replyPreviewContainer.style.display = 'block';
+                });
+                messageDiv.appendChild(replyButton);
+                
+                messagesContainer.appendChild(messageDiv);
+            }
+        }
+        
+        cancelReplyButton.addEventListener('click', () => {
+            replyingToMessage = null;
+            replyPreviewContainer.style.display = 'none';
+        });
+
+        // --- Send Message Logic ---
+        async function sendMessage() {
+            const messageText = messageInput.value.trim();
+            if (messageText === '') return;
+
+            const chatCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatRoomId, 'messages');
+            
+            const messageData = {
+                sender: userId,
+                text: messageText,
+                timestamp: Date.now()
+            };
+
+            if (replyingToMessage) {
+                messageData.replyTo = replyingToMessage.id;
+            }
+
+            try {
+                await addDoc(chatCollectionRef, messageData);
+                messageInput.value = '';
+                replyingToMessage = null;
+                replyPreviewContainer.style.display = 'none';
+            } catch (error) {
+                console.error("Error sending message:", error);
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
