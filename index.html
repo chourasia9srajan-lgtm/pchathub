@@ -68,7 +68,7 @@
             <input type="text" id="other-user-id" class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <button id="login-button" class="w-full bg-blue-600 text-white p-3 rounded-md font-semibold hover:bg-blue-700 transition duration-200">Start Chat</button>
-        <p id="auth-status" class="mt-4 text-center text-sm font-medium text-gray-600">Authenticating...</p>
+        <p id="auth-status" class="mt-4 text-center text-sm font-medium text-gray-600">Generating User ID...</p>
         <p id="user-id-display" class="mt-2 text-center text-xs text-gray-400 truncate"></p>
     </div>
 
@@ -103,19 +103,21 @@
         </div>
     </div>
 
-    <!-- Firebase SDKs -->
+    <!-- Supabase SDK -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, getDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+        import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-        // Global variables provided by the Canvas environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        // --- Firebase Initialization ---
-        let app, db, auth, userId;
+        // --- PASTE YOUR SUPABASE CONFIGURATION HERE ---
+        // This is a mandatory step. You must replace all the placeholder values
+        // with the configuration from your own Supabase project.
+        // Go to your project's dashboard > Settings > API to find these values.
+        const supabaseUrl = 'YOUR_SUPABASE_URL';
+        const supabaseKey = 'YOUR_SUPABASE_KEY';
+        // ---------------------------------------------
+        
+        // --- Supabase Initialization ---
+        let supabase;
+        let userId;
         let chatRoomId;
         let replyingToMessage = null;
         let unsubscribeFromChat = null;
@@ -134,37 +136,26 @@
         const cancelReplyButton = document.getElementById('cancel-reply-button');
         const chatPartnerIdDisplay = document.getElementById('chat-partner-id');
         const currentUserIdDisplay = document.getElementById('current-user-id');
+        
+        // Generate a random user ID on app load
+        userId = crypto.randomUUID();
+        userIdDisplay.textContent = userId;
+        currentUserIdDisplay.textContent = userId;
+        authStatus.textContent = 'User ID generated. Share it with your friend!';
+        loginButton.disabled = false;
 
-        // Check if firebaseConfig is valid
-        if (Object.keys(firebaseConfig).length > 0) {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-            
-            // Log in using the custom token or anonymously
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    authStatus.textContent = 'Authenticated. Your User ID:';
-                    userIdDisplay.textContent = userId;
-                    currentUserIdDisplay.textContent = userId;
-                    loginButton.disabled = false;
-                } else {
-                    try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (error) {
-                        console.error("Authentication failed:", error);
-                        authStatus.textContent = 'Authentication Failed.';
-                    }
-                }
-            });
+        // Check if supabaseConfig is valid
+        if (supabaseUrl !== "https://cozbqttfvnwbqzilxwut.supabase.co" && supabaseKey !== "process.env.SUPABASE_KEY") {
+            try {
+                supabase = createClient(supabaseUrl, supabaseKey);
+                console.log("Supabase client initialized successfully.");
+            } catch (error) {
+                console.error("Supabase initialization failed:", error);
+                authStatus.textContent = 'Supabase initialization failed. Check your config.';
+            }
         } else {
-            authStatus.textContent = 'Firebase configuration is missing.';
-            console.error("Firebase configuration is missing. The app cannot function without it.");
+            authStatus.textContent = 'Supabase configuration is missing or invalid. Please check the code.';
+            console.error("Supabase configuration is missing or invalid. The app cannot function without it.");
         }
 
         // --- Chat Room Logic ---
@@ -183,24 +174,41 @@
         });
 
         // --- Message Display and Interaction ---
-        function startChatListener() {
+        async function startChatListener() {
             if (unsubscribeFromChat) {
-                unsubscribeFromChat(); // Clean up previous listener
+                await supabase.removeChannel(unsubscribeFromChat);
+            }
+            
+            const table_name = 'messages';
+
+            // Fetch initial messages and subscribe to new inserts
+            const { data: initialMessages, error: fetchError } = await supabase
+                .from(table_name)
+                .select('*')
+                .eq('chat_room_id', chatRoomId)
+                .order('timestamp', { ascending: true });
+            
+            if (fetchError) {
+                console.error('Error fetching messages:', fetchError);
+                return;
             }
 
-            const chatCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatRoomId, 'messages');
-            const q = query(chatCollectionRef, orderBy('timestamp'));
+            renderMessages(initialMessages);
 
-            unsubscribeFromChat = onSnapshot(q, (snapshot) => {
-                const messages = [];
-                snapshot.forEach(doc => {
-                    messages.push({ id: doc.id, ...doc.data() });
-                });
-                renderMessages(messages);
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }, (error) => {
-                console.error("Error listening for messages:", error);
-            });
+            unsubscribeFromChat = supabase
+                .channel(`realtime-chat-room-${chatRoomId}`)
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: table_name,
+                    filter: `chat_room_id=eq.${chatRoomId}`
+                }, (payload) => {
+                    const messages = [...initialMessages, payload.new];
+                    renderMessages(messages);
+                })
+                .subscribe();
+
+            console.log("Subscribed to Supabase real-time changes.");
         }
 
         async function renderMessages(messages) {
@@ -210,11 +218,11 @@
 
             for (const msg of messages) {
                 const messageDiv = document.createElement('div');
-                messageDiv.classList.add('flex', 'flex-col');
+                messageDiv.classList.add('flex', 'flex-col', msg.sender === userId ? 'items-end' : 'items-start');
                 
                 let replyContent = null;
-                if (msg.replyTo) {
-                    const repliedToMsg = allMessages[msg.replyTo];
+                if (msg.reply_to) {
+                    const repliedToMsg = allMessages[msg.reply_to];
                     if (repliedToMsg) {
                         replyContent = repliedToMsg.text;
                     }
@@ -231,20 +239,7 @@
                 contentDiv.classList.add('message');
                 contentDiv.classList.add(msg.sender === userId ? 'message-self' : 'message-other');
 
-                // Image handling: check if the message text is a valid image URL
-                const isImage = msg.text.match(/\.(jpeg|jpg|gif|png|webp|avif)$/i);
-                if (isImage) {
-                    const img = document.createElement('img');
-                    img.src = msg.text;
-                    img.classList.add('rounded-lg', 'my-1', 'max-w-full', 'h-auto', 'cursor-pointer');
-                    img.onerror = () => {
-                        // Fallback to text if the image fails to load
-                        contentDiv.textContent = msg.text;
-                    };
-                    contentDiv.appendChild(img);
-                } else {
-                    contentDiv.textContent = msg.text;
-                }
+                contentDiv.textContent = msg.text;
                 
                 messageDiv.appendChild(contentDiv);
 
@@ -261,6 +256,7 @@
                 
                 messagesContainer.appendChild(messageDiv);
             }
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
         cancelReplyButton.addEventListener('click', () => {
@@ -272,21 +268,29 @@
         async function sendMessage() {
             const messageText = messageInput.value.trim();
             if (messageText === '') return;
-
-            const chatCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatRoomId, 'messages');
             
+            const table_name = 'messages';
+
             const messageData = {
                 sender: userId,
                 text: messageText,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                chat_room_id: chatRoomId
             };
 
             if (replyingToMessage) {
-                messageData.replyTo = replyingToMessage.id;
+                messageData.reply_to = replyingToMessage.id;
             }
 
             try {
-                await addDoc(chatCollectionRef, messageData);
+                const { error } = await supabase
+                    .from(table_name)
+                    .insert([messageData]);
+                
+                if (error) {
+                    console.error("Error sending message:", error);
+                }
+                
                 messageInput.value = '';
                 replyingToMessage = null;
                 replyPreviewContainer.style.display = 'none';
@@ -304,3 +308,4 @@
     </script>
 </body>
 </html>
+
